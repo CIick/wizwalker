@@ -1,114 +1,137 @@
-from typing import List
+from typing import Dict
 
 from wizwalker.memory.memory_object import Primitive, PropertyClass, DynamicMemoryObject
 
 
+# Layout of a resolver event (class CombatResult, 0xE0 bytes; list node = 0x10 + 0xE0).
+# Serialized properties come from the type dump (r806919, unchanged since r794561):
+#   +0x48 m_resultType  +0x4C m_participantSubCircle  +0x50 m_effectType (kSpellEffects)
+#   +0x54 m_effectAmount  +0x58 m_spellTemplateID  +0x5C m_spellBaseOverrideTemplateID
+#   +0x60 m_targetSubCircle  +0xC0 m_durationModifier (float)  +0xC4 m_petCasted
+#   +0xC8 m_petCastedTarget  +0xCC m_cloaked
+# Non-serialized members (names are descriptive guesses, not from the dump):
+#   +0x64 bool, +0x68 damage-school hash, +0x6C int, +0x74 bool, +0x78 school hash,
+#   +0x80 std::string (caster / locale key), +0xA0 std::string (target / sound file)
+#
+# NOTE: before 2026-10 the accessors below were named by guess and several were
+# wrong (target_subcircle read +0x50, effect_type read +0x58, ...). The old
+# names/offsets are preserved only through ``legacy_v1_dict`` so capture format
+# v1 stays reproducible.
 class CombatEvent(PropertyClass):
 
     async def read_base_address(self) -> int:
         raise NotImplementedError()
 
-    async def event_type(self) -> int:
-        return await self.read_value_from_offset(72, Primitive.int32)
+    async def result_type(self) -> int:
+        """CombatResult::kResultType"""
+        return await self.read_value_from_offset(0x48, Primitive.int32)
 
-    async def write_event_type(self, event_type: int):
-        await self.write_value_to_offset(72, event_type, Primitive.int32)
+    # kept: same offset/meaning as before
+    async def event_type(self) -> int:
+        return await self.result_type()
+
+    async def participant_subcircle(self) -> int:
+        return await self.read_value_from_offset(0x4C, Primitive.int32)
 
     async def source_subcircle(self) -> int:
-        return await self.read_value_from_offset(76, Primitive.int32)
+        """Alias of participant_subcircle (offset unchanged)."""
+        return await self.participant_subcircle()
 
-    async def write_source_subcircle(self, source_subcircle: int):
-        await self.write_value_to_offset(76, source_subcircle, Primitive.int32)
+    async def spell_effect_type(self) -> int:
+        """SpellEffect::kSpellEffects of the effect that produced this result."""
+        return await self.read_value_from_offset(0x50, Primitive.int32)
+
+    async def effect_amount(self) -> int:
+        return await self.read_value_from_offset(0x54, Primitive.int32)
+
+    async def spell_template_id(self) -> int:
+        return await self.read_value_from_offset(0x58, Primitive.uint32)
+
+    async def spell_base_override_template_id(self) -> int:
+        return await self.read_value_from_offset(0x5C, Primitive.uint32)
 
     async def target_subcircle(self) -> int:
-        return await self.read_value_from_offset(80, Primitive.int32)
-
-    async def write_target_subcircle(self, target_subcircle: int):
-        await self.write_value_to_offset(80, target_subcircle, Primitive.int32)
-
-    async def effect_param(self) -> int:
-        return await self.read_value_from_offset(84, Primitive.int32)
-
-    async def write_effect_param(self, effect_param: int):
-        await self.write_value_to_offset(84, effect_param, Primitive.int32)
-
-    async def effect_type(self) -> int:
-        return await self.read_value_from_offset(88, Primitive.int32)
-
-    async def write_effect_type(self, effect_type: int):
-        await self.write_value_to_offset(88, effect_type, Primitive.int32)
-
-    async def effect_value(self) -> int:
-        return await self.read_value_from_offset(96, Primitive.int32)
-
-    async def write_effect_value(self, effect_value: int):
-        await self.write_value_to_offset(96, effect_value, Primitive.int32)
+        """m_targetSubCircle (+0x60). Previously this method read +0x50 (the effect type)."""
+        return await self.read_value_from_offset(0x60, Primitive.int32)
 
     async def success_flag(self) -> bool:
-        return await self.read_value_from_offset(100, Primitive.bool)
+        return await self.read_value_from_offset(0x64, Primitive.bool)
 
-    async def write_success_flag(self, success_flag: bool):
-        await self.write_value_to_offset(100, success_flag, Primitive.bool)
-
-    async def damage_or_heal(self) -> int:
-        return await self.read_value_from_offset(104, Primitive.int32)
-
-    async def write_damage_or_heal(self, damage_or_heal: int):
-        await self.write_value_to_offset(104, damage_or_heal, Primitive.int32)
+    async def damage_school(self) -> int:
+        """Damage-school hash (+0x68, not serialized). Formerly ``damage_or_heal``."""
+        return await self.read_value_from_offset(0x68, Primitive.int32)
 
     async def secondary_value(self) -> int:
-        return await self.read_value_from_offset(108, Primitive.int32)
-
-    async def write_secondary_value(self, secondary_value: int):
-        await self.write_value_to_offset(108, secondary_value, Primitive.int32)
+        return await self.read_value_from_offset(0x6C, Primitive.int32)
 
     async def critical_flag(self) -> bool:
-        return await self.read_value_from_offset(116, Primitive.bool)
-
-    async def write_critical_flag(self, critical_flag: bool):
-        await self.write_value_to_offset(116, critical_flag, Primitive.bool)
+        return await self.read_value_from_offset(0x74, Primitive.bool)
 
     async def school(self) -> int:
-        return await self.read_value_from_offset(120, Primitive.int32)
-
-    async def write_school(self, school: int):
-        await self.write_value_to_offset(120, school, Primitive.int32)
+        return await self.read_value_from_offset(0x78, Primitive.int32)
 
     async def caster_name(self) -> str:
-        return await self.read_string_from_offset(128)
-
-    async def write_caster_name(self, caster_name: str):
-        await self.write_string_to_offset(128, caster_name)
+        return await self.read_string_from_offset(0x80)
 
     async def target_name(self) -> str:
-        return await self.read_string_from_offset(160)
+        return await self.read_string_from_offset(0xA0)
 
-    async def write_target_name(self, target_name: str):
-        await self.write_string_to_offset(160, target_name)
+    async def duration_modifier(self) -> float:
+        return await self.read_value_from_offset(0xC0, Primitive.float32)
 
-    async def pip_info_1(self) -> int:
-        return await self.read_value_from_offset(192, Primitive.int32)
+    async def pet_casted(self) -> bool:
+        return await self.read_value_from_offset(0xC4, Primitive.bool)
 
-    async def write_pip_info_1(self, pip_info_1: int):
-        await self.write_value_to_offset(192, pip_info_1, Primitive.int32)
+    async def pet_casted_target(self) -> int:
+        return await self.read_value_from_offset(0xC8, Primitive.int32)
 
-    async def pip_flag_1(self) -> bool:
-        return await self.read_value_from_offset(196, Primitive.bool)
+    async def cloaked(self) -> bool:
+        return await self.read_value_from_offset(0xCC, Primitive.bool)
 
-    async def write_pip_flag_1(self, pip_flag_1: bool):
-        await self.write_value_to_offset(196, pip_flag_1, Primitive.bool)
+    async def to_dict(self) -> Dict:
+        """Correctly named fields (capture format v2)."""
+        return {
+            "result_type": await self.result_type(),
+            "participant_subcircle": await self.participant_subcircle(),
+            "effect_type": await self.spell_effect_type(),
+            "effect_amount": await self.effect_amount(),
+            "spell_template_id": await self.spell_template_id(),
+            "spell_base_override_template_id": await self.spell_base_override_template_id(),
+            "target_subcircle": await self.target_subcircle(),
+            "success_flag": await self.success_flag(),
+            "damage_school": await self.damage_school(),
+            "secondary_value": await self.secondary_value(),
+            "critical_flag": await self.critical_flag(),
+            "school": await self.school(),
+            "caster_name": await self.caster_name(),
+            "target_name": await self.target_name(),
+            "duration_modifier": await self.duration_modifier(),
+            "pet_casted": await self.pet_casted(),
+            "pet_casted_target": await self.pet_casted_target(),
+            "cloaked": await self.cloaked(),
+        }
 
-    async def pip_info_2(self) -> int:
-        return await self.read_value_from_offset(200, Primitive.int32)
-
-    async def write_pip_info_2(self, pip_info_2: int):
-        await self.write_value_to_offset(200, pip_info_2, Primitive.int32)
-
-    async def pip_flag_2(self) -> bool:
-        return await self.read_value_from_offset(204, Primitive.bool)
-
-    async def write_pip_flag_2(self, pip_flag_2: bool):
-        await self.write_value_to_offset(204, pip_flag_2, Primitive.bool)
+    async def legacy_v1_dict(self) -> Dict:
+        """The historical (mislabelled) capture v1 keys, byte-for-byte as before."""
+        return {
+            "event_type": await self.read_value_from_offset(0x48, Primitive.int32),
+            "source_subcircle": await self.read_value_from_offset(0x4C, Primitive.int32),
+            "target_subcircle": await self.read_value_from_offset(0x50, Primitive.int32),
+            "effect_param": await self.read_value_from_offset(0x54, Primitive.int32),
+            "effect_type": await self.read_value_from_offset(0x58, Primitive.int32),
+            "effect_value": await self.read_value_from_offset(0x60, Primitive.int32),
+            "success_flag": await self.read_value_from_offset(0x64, Primitive.bool),
+            "damage_or_heal": await self.read_value_from_offset(0x68, Primitive.int32),
+            "secondary_value": await self.read_value_from_offset(0x6C, Primitive.int32),
+            "critical_flag": await self.read_value_from_offset(0x74, Primitive.bool),
+            "school": await self.read_value_from_offset(0x78, Primitive.int32),
+            "caster_name": await self.read_string_from_offset(0x80),
+            "target_name": await self.read_string_from_offset(0xA0),
+            "pip_info_1": await self.read_value_from_offset(0xC0, Primitive.int32),
+            "pip_flag_1": await self.read_value_from_offset(0xC4, Primitive.bool),
+            "pip_info_2": await self.read_value_from_offset(0xC8, Primitive.int32),
+            "pip_flag_2": await self.read_value_from_offset(0xCC, Primitive.bool),
+        }
 
 
 class DynamicCombatEvent(DynamicMemoryObject, CombatEvent):

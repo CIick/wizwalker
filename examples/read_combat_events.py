@@ -358,25 +358,9 @@ async def read_raw_events(duel) -> list[dict]:
     result = []
     for evt in events:
         try:
-            result.append({
-                "event_type": await evt.event_type(),
-                "source_subcircle": await evt.source_subcircle(),
-                "target_subcircle": await evt.target_subcircle(),
-                "effect_param": await evt.effect_param(),
-                "effect_type": await evt.effect_type(),
-                "effect_value": await evt.effect_value(),
-                "success_flag": await evt.success_flag(),
-                "damage_or_heal": await evt.damage_or_heal(),
-                "secondary_value": await evt.secondary_value(),
-                "critical_flag": await evt.critical_flag(),
-                "school": await evt.school(),
-                "caster_name": await evt.caster_name(),
-                "target_name": await evt.target_name(),
-                "pip_info_1": await evt.pip_info_1(),
-                "pip_flag_1": await evt.pip_flag_1(),
-                "pip_info_2": await evt.pip_info_2(),
-                "pip_flag_2": await evt.pip_flag_2(),
-            })
+            # v1 keys are historical/mislabelled; see CombatEvent.legacy_v1_dict and
+            # wiz-combat-sim-v2 python/autocombat/capture.py (format v2, correct names)
+            result.append(await evt.legacy_v1_dict())
         except Exception as e:
             print(f"  [WARN] Error reading event: {e}")
     return result
@@ -446,14 +430,11 @@ def extract_actions(events: list[dict],
     if enchantments is None:
         enchantments = {}
     actions = []
-    seen_casters = set()
     for i, evt in enumerate(events):
-        if evt["event_type"] != 0x00:
+        if evt["event_type"] not in (0x00, 0x01):  # StartSpellCast / StartSpellNoCast (trigger)
             continue
         caster = evt["source_subcircle"]
-        if caster in seen_casters:
-            continue  # already recorded this caster's action
-        seen_casters.add(caster)
+        # record every cast (second casts / trigger casts included)
 
         # Check if next event is Fizzle/Pass (0x17)
         fizzle_or_pass = False
@@ -497,7 +478,7 @@ def extract_actions(events: list[dict],
             action = {
                 "caster": caster,
                 "caster_name": evt.get("source_name", f"s{caster}"),
-                "action": "cast",
+                "action": "cast" if evt["event_type"] == 0x00 else "trigger_cast",
                 "spell_id": sid,
                 "spell_name": spell_name(sid),
                 "target": target,
