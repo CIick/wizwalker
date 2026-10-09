@@ -86,6 +86,27 @@ class Duel(PropertyClass):
     async def write_first_team_to_act(self, first_team_to_act: int):
         await self.write_value_to_offset(184, first_team_to_act, Primitive.int32)
 
+    # --- RNG seed (offset 0x100 = 256) ---
+    async def rng_seed(self) -> int:
+        """
+        Combat RNG seed (LCG state).
+
+        The game uses a Linear Congruential Generator for all combat
+        random rolls (pip grants, accuracy, crit, stun resist, etc.):
+          seed = seed * 0x41C64E6D + 0x3039
+        This is the standard ANSI C rand() algorithm. The entire RNG
+        state is this single uint32 — reading it lets you predict all
+        future rolls. Seeded from time(NULL) at combat start.
+
+        Notes:
+            Binary-verified from Duel__UpdateOnePip (0x141fd5530):
+            Random__FloatInRange((uint *)(duel + 0x100), 0.0, fVar19)
+        """
+        return await self.read_value_from_offset(256, Primitive.uint32)
+
+    async def write_rng_seed(self, rng_seed: int):
+        await self.write_value_to_offset(256, rng_seed, Primitive.uint32)
+
     async def combat_resolver(self) -> Optional[DynamicCombatResolver]:
         addr = await self.read_value_from_offset(136, Primitive.int64)
 
